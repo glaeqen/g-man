@@ -1,0 +1,33 @@
+[package]
+name = "gerrit-gitlab-ci"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+anyhow = "1.0.80"
+clap = { version = "4.5.1", features = ["derive", "env"] }
+env_logger = "0.11.2"
+log = "0.4.20"
+serde = { version = "1.0.197", features = ["derive"] }
+serde_json = "1.0.114"
+serde_with = "3.6.1"
+toml = { version = "0.8.10", default-features = false, features = ["parse"] }
+
+[dependencies.reqwest]
+version = "0.11.25"
+default-features = false
+features = ["rustls-tls-native-roots", "json"]
+
+[dependencies.tokio]
+version = "1.36.0"
+features = [
+    "rt-multi-thread",
+    "sync",
+    "macros",
+    "process",
+    "signal",
+    "io-util",
+    "time",
+]

@@ -1,0 +1,30 @@
+# Look for the most up-to-date config layout in crate::config module.
+
+[gerrit]
+internal_git_directory = "/some/path/to/gerrits/git-volume/"
+
+[gerrit.ssh]
+user = "user"
+host = "host"
+port = 29418
+private_key_path = "/home/bob/.ssh/some-identity"
+
+[gitlab]
+ci_branch_prefix = "gerrit-"
+
+[gitlab.api]
+# TODO: Add support
+pipeline_observation_timeout_s = 3600
+# TODO: Add support
+retry_command = "retry"
+private_access_token = "private_token"
+
+[gitlab.ssh]
+private_key_path = "/home/bob/.ssh/some-identity"
+
+[[repository]]
+name = "local-repository-name"
+# TODO: Presumably only `group-a/subgroup-b/project-c` is necessary
+# And all the rest could be derived through the REST API.
+gitlab_git_remote = "git@gitlab.com:group-a/subgroup-b/project-c.git"
+gitlab_project_id = 12345
