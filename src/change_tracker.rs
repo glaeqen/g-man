@@ -16,6 +16,27 @@ use crate::{
 // TODO: Replace with config
 const TIMEOUT_PER_OBSERVATION: u64 = 3600;
 
+macro_rules! try_plain_message_review {
+    ($gr:ident, $change:ident, $patchset:ident, $s:literal $(, $x:expr)* $(,)?) => {
+        {
+            let id = LoggingEnricher::new(&$patchset, &$change);
+            if let Err(e) = $gr
+                .review(
+                    &$change,
+                    &$patchset,
+                    Review {
+                        message: format!($s $(, $x)*),
+                        ..Default::default()
+                    },
+                )
+                .await
+            {
+                log::error!("{id} Could not send a review: {e:?}");
+            }
+        }
+    }
+}
+
 pub struct Args {
     pub config: config::Config,
     pub gerrit_events_rx: broadcast::Receiver<gerrit_stream_events::Event>,
@@ -156,58 +177,34 @@ impl ChangeTracker {
                     "User requested retry but the latest pipeline is not failed but {:?}",
                     pipeline.status
                 );
-                if let Err(e) = gerrit_reviewer
-                    .review(
-                        &change,
-                        &patchset,
-                        Review {
-                            message: format!(
-                                "Latest pipeline ({}) found was {:?}, cannot retry.",
-                                pipeline.web_url, pipeline.status
-                            ),
-                            ..Default::default()
-                        },
-                    )
-                    .await
-                {
-                    log::error!("Could not send a review: {e:?}");
-                }
+                try_plain_message_review!(
+                    gerrit_reviewer,
+                    change,
+                    patchset,
+                    "Latest pipeline ({}) found was {:?}, cannot retry.",
+                    pipeline.web_url,
+                    pipeline.status
+                );
                 return;
             }
             Ok(PipelineQueryResult::NotFound) => {
                 log::info!("User requested retry but the latest pipeline was not found",);
-                if let Err(e) = gerrit_reviewer
-                    .review(
-                        &change,
-                        &patchset,
-                        Review {
-                            message: "Latest pipeline was not found.".into(),
-                            ..Default::default()
-                        },
-                    )
-                    .await
-                {
-                    log::error!("Could not send a review: {e:?}");
-                }
+                try_plain_message_review!(
+                    gerrit_reviewer,
+                    change,
+                    patchset,
+                    "Latest pipeline was not found."
+                );
                 return;
             }
             Err(e) => {
                 log::error!("{id} Error when trying to query the latest pipeline status: {e:?}");
-                if let Err(e) = gerrit_reviewer
-                    .review(
-                        &change,
-                        &patchset,
-                        Review {
-                            message: format!(
-                                "Error occured when trying to query the latest pipeline status."
-                            ),
-                            ..Default::default()
-                        },
-                    )
-                    .await
-                {
-                    log::error!("Could not send a review: {e:?}");
-                }
+                try_plain_message_review!(
+                    gerrit_reviewer,
+                    change,
+                    patchset,
+                    "Error occured when trying to query the latest pipeline status."
+                );
                 return;
             }
         };
@@ -220,37 +217,22 @@ impl ChangeTracker {
         {
             Ok(pipeline) => {
                 log::info!("Pipeline ({}) retried", pipeline.id);
-                if let Err(e) = gerrit_reviewer
-                    .review(
-                        &change,
-                        &patchset,
-                        Review {
-                            message: format!("Pipeline retried ({})", pipeline.web_url),
-                            ..Default::default()
-                        },
-                    )
-                    .await
-                {
-                    log::error!("Could not send a review: {e:?}");
-                }
+                try_plain_message_review!(
+                    gerrit_reviewer,
+                    change,
+                    patchset,
+                    "Pipeline retried ({})",
+                    pipeline.web_url
+                );
             }
             Err(e) => {
                 log::error!("{id} Error when trying to retry the latest pipeline status: {e:?}");
-                if let Err(e) = gerrit_reviewer
-                    .review(
-                        &change,
-                        &patchset,
-                        Review {
-                            message: format!(
-                                "Error occured when trying to retry the latest pipeline status."
-                            ),
-                            ..Default::default()
-                        },
-                    )
-                    .await
-                {
-                    log::error!("Could not send a review: {e:?}");
-                }
+                try_plain_message_review!(
+                    gerrit_reviewer,
+                    change,
+                    patchset,
+                    "Error occured when trying to retry the latest pipeline status."
+                );
                 return;
             }
         }
