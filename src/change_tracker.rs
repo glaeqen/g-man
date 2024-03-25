@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, Mutex};
 
 use crate::{
     config,
@@ -50,6 +50,8 @@ fn code_change_in_patchset(patchset: &Patchset) -> bool {
         _ => true,
     }
 }
+
+static GLOBAL_PUSH_TRIGGER_MUTEX: Mutex<()> = Mutex::const_new(());
 
 impl ChangeTracker {
     fn process(&self, event: gerrit_stream_events::Event) {
@@ -209,6 +211,9 @@ impl ChangeTracker {
                 return;
             }
         };
+
+        let mutex_lock = GLOBAL_PUSH_TRIGGER_MUTEX.lock().await;
+
         match client
             .retry_pipeline(retry_pipeline_id, &change.project)
             .await
@@ -250,6 +255,8 @@ impl ChangeTracker {
             }
         }
 
+        core::mem::drop(mutex_lock);
+
         if let Err(e) = self
             .track_pipeline(retry_pipeline_id, &branch, &patchset, &change)
             .await
@@ -266,6 +273,9 @@ impl ChangeTracker {
             return;
         }
         let git = git::Git::new(self.config.clone());
+
+        let mutex_lock = GLOBAL_PUSH_TRIGGER_MUTEX.lock().await;
+
         let push_operation = match git.push(&patchset, &change).await {
             Ok(op) => op,
             Err(e) => {
@@ -296,19 +306,16 @@ impl ChangeTracker {
                 // - a CI YAML contains jobs that run ruleless Thus pipeline will be
                 //   autotriggered on push. It is not enough to reuse the pipeline because
                 //   some jobs with Gerrit rule (GERRIT var) will not run.
-                // - one thread races and triggers a pipeline in the name of some other
-                //   patchset We cannot reuse it because we cannot differentiate it from the
-                //   former case (maybe we could tell from looking at the user because an
-                //   explicit trigger should be caused by the API user, not real one)
                 //
                 // Solution is to cancel all jobs for a revision and trigger one proper.
                 // We cannot be cancelled by others because we are uniquely representing
                 // one branch/ref and one revision.
+                // TODO: Should we cancel or just warn user. Or cancel AND warn user?
                 for pipeline in pipelines.into_iter() {
                     log::warn!(
-                                    "{id} Pipeline ({}) got possibly autotriggered or race-triggered by another thread, cancelling",
-                                    pipeline.id
-                                );
+                        "{id} Pipeline ({}) got possibly autotriggered, cancelling",
+                        pipeline.id
+                    );
                     let cancel_result = client.cancel_pipeline(pipeline.id, &change.project).await;
                     log::debug!("{id} Cancellation attempt result: {cancel_result:?}");
                 }
@@ -338,6 +345,8 @@ impl ChangeTracker {
                 return;
             }
         };
+
+        core::mem::drop(mutex_lock);
 
         if let Err(e) = self
             .track_pipeline(pipeline_id, &branch, &patchset, &change)
