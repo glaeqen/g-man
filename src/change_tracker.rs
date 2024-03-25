@@ -310,28 +310,34 @@ impl ChangeTracker {
                 // Solution is to cancel all jobs for a revision and trigger one proper.
                 // We cannot be cancelled by others because we are uniquely representing
                 // one branch/ref and one revision.
-                let pipeline_ids = pipelines
-                    .iter()
-                    .map(|p| format!("{}", p.id))
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                if pipeline_ids.len() > 0 {
-                    log::warn!(
-                        "{id} Pipelines ({pipeline_ids}) got possibly autotriggered, cancelling",
+                let any_pipeline_running = pipelines.iter().any(|p| p.status.is_running());
+                if any_pipeline_running {
+                    let pipeline_ids = pipelines
+                        .iter()
+                        .map(|p| format!("{}", p.id))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    if pipeline_ids.len() > 0 {
+                        log::warn!(
+                        "{id} Pipelines ({pipeline_ids}) found running @ {} already. Cancelling.",
+                        patchset.revision
                     );
-                    send_gerrit_review!(
+                        send_gerrit_review!(
                         gerrit_reviewer,
                         change,
                         patchset,
-                        "Warning: pipelines ({pipeline_ids}) got possibly autotriggered. Are there any ruleless jobs defined?",
+                        "Warning: pipelines ({pipeline_ids}) found running @ {} already. Cancelling.",
+                        patchset.revision
                     );
-                }
-                for pipeline in pipelines.into_iter() {
-                    let cancel_result = client.cancel_pipeline(pipeline.id, &change.project).await;
-                    log::debug!(
-                        "{id} Cancellation of ({}) attempt result: {cancel_result:?}",
-                        pipeline.id
-                    );
+                    }
+                    for pipeline in pipelines.into_iter() {
+                        let cancel_result =
+                            client.cancel_pipeline(pipeline.id, &change.project).await;
+                        log::debug!(
+                            "{id} Cancellation of ({}) attempt result: {cancel_result:?}",
+                            pipeline.id
+                        );
+                    }
                 }
             }
             Err(e) => {

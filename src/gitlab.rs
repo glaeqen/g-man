@@ -140,7 +140,7 @@ impl Client {
     }
 }
 
-#[derive(serde::Deserialize, Debug, Clone)]
+#[derive(serde::Deserialize, Debug, Copy, Clone)]
 #[serde(rename_all = "snake_case")]
 pub enum PipelineStatus {
     Created,
@@ -154,6 +154,18 @@ pub enum PipelineStatus {
     Skipped,
     Manual,
     Scheduled,
+}
+
+impl PipelineStatus {
+    pub fn is_running(self) -> bool {
+        use PipelineStatus::*;
+        match self {
+            Created | WaitingForResource | Preparing | Pending | Running => true,
+            Success | Failed | Canceled => false,
+            // I hope that is true?
+            Skipped | Manual | Scheduled => false,
+        }
+    }
 }
 
 #[derive(serde::Deserialize, Debug, Clone)]
@@ -175,7 +187,8 @@ impl TriggerPipelineRequestBody {
     fn new_gerrit_pipeline(branch: &str) -> Self {
         Self {
             reference: String::from(branch),
-            variables: Some(ArrayOfHashes::new([("GERRIT", "true")])),
+            // Mimick the merge request pipeline
+            variables: Some(ArrayOfHashes::new([("CI_PIPELINE_SOURCE", "merge_request_event")])),
         }
     }
 }
