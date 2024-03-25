@@ -203,7 +203,7 @@ impl ChangeTracker {
                     gerrit_reviewer,
                     change,
                     patchset,
-                    "Error occured when trying to query the latest pipeline status."
+                    "Fatal: Error occured when trying to query the latest pipeline status. Check the logs."
                 );
                 return;
             }
@@ -244,6 +244,12 @@ impl ChangeTracker {
             .await
         {
             log::error!("{id} Error when trying to track pipeline: {e:?}");
+            try_plain_message_review!(
+                gerrit_reviewer,
+                change,
+                patchset,
+                "Fatal: Error when trying to track pipeline. Check the logs."
+            );
         }
     }
 
@@ -276,6 +282,7 @@ impl ChangeTracker {
 
         let branch = push_operation.branch();
 
+        let gerrit_reviewer = gerrit_ssh_command::GerritSshCommand::new(self.config.clone());
         let client = gitlab::Client::new(self.config.clone());
         match client
             .pipelines(&branch, &patchset.revision, &change.project)
@@ -292,18 +299,38 @@ impl ChangeTracker {
                 // Solution is to cancel all jobs for a revision and trigger one proper.
                 // We cannot be cancelled by others because we are uniquely representing
                 // one branch/ref and one revision.
-                // TODO: Should we cancel or just warn user. Or cancel AND warn user?
-                for pipeline in pipelines.into_iter() {
+                let pipeline_ids = pipelines
+                    .iter()
+                    .map(|p| format!("{}", p.id))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                if pipeline_ids.len() > 0 {
                     log::warn!(
-                        "{id} Pipeline ({}) got possibly autotriggered, cancelling",
+                        "{id} Pipelines ({pipeline_ids}) got possibly autotriggered, cancelling",
+                    );
+                    try_plain_message_review!(
+                        gerrit_reviewer,
+                        change,
+                        patchset,
+                        "Warning: pipelines ({pipeline_ids}) got possibly autotriggered. Are there any ruleless jobs defined?",
+                    );
+                }
+                for pipeline in pipelines.into_iter() {
+                    let cancel_result = client.cancel_pipeline(pipeline.id, &change.project).await;
+                    log::debug!(
+                        "{id} Cancellation of ({}) attempt result: {cancel_result:?}",
                         pipeline.id
                     );
-                    let cancel_result = client.cancel_pipeline(pipeline.id, &change.project).await;
-                    log::debug!("{id} Cancellation attempt result: {cancel_result:?}");
                 }
             }
             Err(e) => {
                 log::error!("{id} Error when trying to query the latest pipeline status: {e:?}");
+                try_plain_message_review!(
+                    gerrit_reviewer,
+                    change,
+                    patchset,
+                    "Fatal: Error when trying to query the latest pipeline status. Check the logs.",
+                );
                 return;
             }
         }
@@ -319,11 +346,13 @@ impl ChangeTracker {
                 pipeline.id
             }
             Err(e) => {
-                // TODO: BadRequest might mean malformed YAML, should be reported
-                // to the user
-                // Probably more gerrit_reviewer.review will be needed on error cases
-                // But not too much in order not to spam, I guess
                 log::error!("{id} Error when trying to trigger a pipeline: {e:?}");
+                try_plain_message_review!(
+                    gerrit_reviewer,
+                    change,
+                    patchset,
+                    "Fatal: Error when trying to trigger a pipeline. Is YAML CI descriptor malformed? Otherwise check the logs.",
+                );
                 return;
             }
         };
@@ -335,6 +364,12 @@ impl ChangeTracker {
             .await
         {
             log::error!("{id} Error when trying to track pipeline: {e:?}");
+            try_plain_message_review!(
+                gerrit_reviewer,
+                change,
+                patchset,
+                "Fatal: Error when trying to track pipeline. Check the logs.",
+            );
         }
     }
 
@@ -350,7 +385,15 @@ impl ChangeTracker {
         match git.push_delete(&change).await {
             Ok(_) => log::info!("{id} Successfully removed a branch"),
             Err(e) => {
-                log::error!("{id} Error when trying to retire change: {e:?}")
+                log::error!("{id} Error when trying to retire change: {e:?}");
+                let gerrit_reviewer =
+                    gerrit_ssh_command::GerritSshCommand::new(self.config.clone());
+                try_plain_message_review!(
+                    gerrit_reviewer,
+                    change,
+                    patchset,
+                    "Fatal: Error when trying to track pipeline. Check the logs.",
+                );
             }
         }
     }
@@ -403,7 +446,10 @@ impl ChangeTracker {
             log::trace!("{id} Response body: {latest_pipeline:#?}");
 
             if latest_pipeline.id != pipeline_id || latest_pipeline.sha != patchset.revision {
-                log::info!("{id} Terminating, tracked pipeline (id: {}) is not relevant. Latest: id:{} for rev:{}", pipeline_id, latest_pipeline.id, latest_pipeline.sha);
+                log::info!(
+                    "{id} Terminating, tracked pipeline (id: {}) is not relevant. Latest: id:{} for rev:{}",
+                    pipeline_id, latest_pipeline.id, latest_pipeline.sha
+                );
                 let cancel_result = client.cancel_pipeline(pipeline_id, &change.project).await;
                 log::debug!("{id} Cancel attempt of the current pipeline: {cancel_result:?}");
                 break;
