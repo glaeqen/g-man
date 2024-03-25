@@ -16,8 +16,17 @@ use crate::{
 // TODO: Replace with config
 const TIMEOUT_PER_OBSERVATION: u64 = 3600;
 
-macro_rules! try_plain_message_review {
+macro_rules! send_gerrit_review {
     ($gr:ident, $change:ident, $patchset:ident, $s:literal $(, $x:expr)* $(,)?) => {
+        send_gerrit_review!($gr, $change, $patchset, None, $s $(, $x)*)
+    };
+    ($gr:ident, $change:ident, $patchset:ident, Passed, $s:literal $(, $x:expr)* $(,)?) => {
+        send_gerrit_review!($gr, $change, $patchset, Some(Verified::Positive), $s $(, $x)*)
+    };
+    ($gr:ident, $change:ident, $patchset:ident, Failed, $s:literal $(, $x:expr)* $(,)?) => {
+        send_gerrit_review!($gr, $change, $patchset, Some(Verified::Negative), $s $(, $x)*)
+    };
+    ($gr:ident, $change:ident, $patchset:ident, $verified:expr, $s:literal $(, $x:expr)* $(,)?) => {
         {
             let id = LoggingEnricher::new(&$patchset, &$change);
             if let Err(e) = $gr
@@ -26,7 +35,7 @@ macro_rules! try_plain_message_review {
                     &$patchset,
                     Review {
                         message: format!($s $(, $x)*),
-                        ..Default::default()
+                        verified: $verified,
                     },
                 )
                 .await
@@ -34,7 +43,7 @@ macro_rules! try_plain_message_review {
                 log::error!("{id} Could not send a review: {e:?}");
             }
         }
-    }
+    };
 }
 
 pub struct Args {
@@ -177,7 +186,7 @@ impl ChangeTracker {
                     "User requested retry but the latest pipeline is not failed but {:?}",
                     pipeline.status
                 );
-                try_plain_message_review!(
+                send_gerrit_review!(
                     gerrit_reviewer,
                     change,
                     patchset,
@@ -189,7 +198,7 @@ impl ChangeTracker {
             }
             Ok(PipelineQueryResult::NotFound) => {
                 log::info!("User requested retry but the latest pipeline was not found",);
-                try_plain_message_review!(
+                send_gerrit_review!(
                     gerrit_reviewer,
                     change,
                     patchset,
@@ -199,7 +208,7 @@ impl ChangeTracker {
             }
             Err(e) => {
                 log::error!("{id} Error when trying to query the latest pipeline status: {e:?}");
-                try_plain_message_review!(
+                send_gerrit_review!(
                     gerrit_reviewer,
                     change,
                     patchset,
@@ -209,15 +218,13 @@ impl ChangeTracker {
             }
         };
 
-        let mutex_lock = GLOBAL_PUSH_TRIGGER_MUTEX.lock().await;
-
         match client
             .retry_pipeline(retry_pipeline_id, &change.project)
             .await
         {
             Ok(pipeline) => {
                 log::info!("Pipeline ({}) retried", pipeline.id);
-                try_plain_message_review!(
+                send_gerrit_review!(
                     gerrit_reviewer,
                     change,
                     patchset,
@@ -227,7 +234,7 @@ impl ChangeTracker {
             }
             Err(e) => {
                 log::error!("{id} Error when trying to retry the latest pipeline status: {e:?}");
-                try_plain_message_review!(
+                send_gerrit_review!(
                     gerrit_reviewer,
                     change,
                     patchset,
@@ -237,18 +244,16 @@ impl ChangeTracker {
             }
         }
 
-        core::mem::drop(mutex_lock);
-
         if let Err(e) = self
             .track_pipeline(retry_pipeline_id, &branch, &patchset, &change)
             .await
         {
-            log::error!("{id} Error when trying to track pipeline: {e:?}");
-            try_plain_message_review!(
+            log::error!("{id} Error when trying to track the pipeline: {e:?}");
+            send_gerrit_review!(
                 gerrit_reviewer,
                 change,
                 patchset,
-                "Fatal: Error when trying to track pipeline. Check the logs."
+                "Fatal: Error when trying to track the pipeline. Check the logs."
             );
         }
     }
@@ -261,13 +266,20 @@ impl ChangeTracker {
             return;
         }
         let git = git::Git::new(self.config.clone());
+        let gerrit_reviewer = gerrit_ssh_command::GerritSshCommand::new(self.config.clone());
 
         let mutex_lock = GLOBAL_PUSH_TRIGGER_MUTEX.lock().await;
 
         let push_operation = match git.push(&patchset, &change).await {
             Ok(op) => op,
             Err(e) => {
-                log::error!("{id} Failed to git-push: {e:?}");
+                log::error!("{id} Failed to git-push changes to GitLab: {e:?}");
+                send_gerrit_review!(
+                    gerrit_reviewer,
+                    change,
+                    patchset,
+                    "Fatal: Failed to git-push changes to GitLab. Check the logs.",
+                );
                 return;
             }
         };
@@ -282,7 +294,6 @@ impl ChangeTracker {
 
         let branch = push_operation.branch();
 
-        let gerrit_reviewer = gerrit_ssh_command::GerritSshCommand::new(self.config.clone());
         let client = gitlab::Client::new(self.config.clone());
         match client
             .pipelines(&branch, &patchset.revision, &change.project)
@@ -308,7 +319,7 @@ impl ChangeTracker {
                     log::warn!(
                         "{id} Pipelines ({pipeline_ids}) got possibly autotriggered, cancelling",
                     );
-                    try_plain_message_review!(
+                    send_gerrit_review!(
                         gerrit_reviewer,
                         change,
                         patchset,
@@ -325,7 +336,7 @@ impl ChangeTracker {
             }
             Err(e) => {
                 log::error!("{id} Error when trying to query the latest pipeline status: {e:?}");
-                try_plain_message_review!(
+                send_gerrit_review!(
                     gerrit_reviewer,
                     change,
                     patchset,
@@ -335,11 +346,6 @@ impl ChangeTracker {
             }
         }
 
-        // We assume that if pipeline.sha != patchset.revision right after git-push,
-        // we should trigger a pipeline corresponding to our patchset.
-        // If we trigger a pipeline for a wrong revision in a race
-        // between git operations and gitlab queries, we gonna get
-        // cancelled and thus eventually terminate.
         let pipeline_id = match client.trigger_pipeline(&branch, &change.project).await {
             Ok(pipeline) => {
                 log::debug!("{id} Pipeline ({}) triggered", pipeline.id);
@@ -347,7 +353,7 @@ impl ChangeTracker {
             }
             Err(e) => {
                 log::error!("{id} Error when trying to trigger a pipeline: {e:?}");
-                try_plain_message_review!(
+                send_gerrit_review!(
                     gerrit_reviewer,
                     change,
                     patchset,
@@ -363,12 +369,12 @@ impl ChangeTracker {
             .track_pipeline(pipeline_id, &branch, &patchset, &change)
             .await
         {
-            log::error!("{id} Error when trying to track pipeline: {e:?}");
-            try_plain_message_review!(
+            log::error!("{id} Error when trying to track the pipeline: {e:?}");
+            send_gerrit_review!(
                 gerrit_reviewer,
                 change,
                 patchset,
-                "Fatal: Error when trying to track pipeline. Check the logs.",
+                "Fatal: Error when trying to track the pipeline. Check the logs.",
             );
         }
     }
@@ -382,17 +388,32 @@ impl ChangeTracker {
 
         let git = git::Git::new(self.config.clone());
 
+        let gerrit_reviewer = gerrit_ssh_command::GerritSshCommand::new(self.config.clone());
+
         match git.push_delete(&change).await {
-            Ok(_) => log::info!("{id} Successfully removed a branch"),
-            Err(e) => {
-                log::error!("{id} Error when trying to retire change: {e:?}");
-                let gerrit_reviewer =
-                    gerrit_ssh_command::GerritSshCommand::new(self.config.clone());
-                try_plain_message_review!(
+            Ok(_) => {
+                log::info!("{id} Successfully removed a branch");
+                send_gerrit_review!(
                     gerrit_reviewer,
                     change,
                     patchset,
-                    "Fatal: Error when trying to track pipeline. Check the logs.",
+                    "Branch ({}) successfully removed.",
+                    &change.branch,
+                );
+            }
+            Err(e) => {
+                log::warn!(
+                    "{id} Error when trying to delete an irrelevant CI branch ({}): {e:?}",
+                    change.branch
+                );
+                let gerrit_reviewer =
+                    gerrit_ssh_command::GerritSshCommand::new(self.config.clone());
+                send_gerrit_review!(
+                    gerrit_reviewer,
+                    change,
+                    patchset,
+                    "Warning: Error when trying to delete an irrelevant CI branch ({}). Does not exist?",
+                    change.branch
                 );
             }
         }
@@ -445,10 +466,22 @@ impl ChangeTracker {
 
             log::trace!("{id} Response body: {latest_pipeline:#?}");
 
+            let gerrit_reviewer = gerrit_ssh_command::GerritSshCommand::new(self.config.clone());
+
             if latest_pipeline.id != pipeline_id || latest_pipeline.sha != patchset.revision {
                 log::info!(
-                    "{id} Terminating, tracked pipeline (id: {}) is not relevant. Latest: id:{} for rev:{}",
-                    pipeline_id, latest_pipeline.id, latest_pipeline.sha
+                    "{id} Terminating tracked pipeline ({}) @ {}, different latest found: ({}) @ {}",
+                    pipeline_id, patchset.revision, latest_pipeline.id, latest_pipeline.sha
+                );
+                send_gerrit_review!(
+                    gerrit_reviewer,
+                    change,
+                    patchset,
+                    "Terminating tracked pipeline ({}) @ {}, different latest found: ({}) @ {}",
+                    pipeline_id,
+                    patchset.revision,
+                    latest_pipeline.id,
+                    latest_pipeline.sha
                 );
                 let cancel_result = client.cancel_pipeline(pipeline_id, &change.project).await;
                 log::debug!("{id} Cancel attempt of the current pipeline: {cancel_result:?}");
@@ -456,60 +489,41 @@ impl ChangeTracker {
             }
 
             {
-                let gerrit_reviewer =
-                    gerrit_ssh_command::GerritSshCommand::new(self.config.clone());
-
                 use gitlab::PipelineStatus::*;
                 match latest_pipeline.status {
                     Success => {
                         log::info!("{id} Pipeline succeeded");
-                        gerrit_reviewer
-                            .review(
-                                &change,
-                                &patchset,
-                                Review {
-                                    message: format!(
-                                        "Pipeline succeeded ({})",
-                                        latest_pipeline.web_url
-                                    ),
-                                    verified: Some(Verified::Positive),
-                                },
-                            )
-                            .await?;
+                        send_gerrit_review!(
+                            gerrit_reviewer,
+                            change,
+                            patchset,
+                            Passed,
+                            "Pipeline succeeded ({})",
+                            latest_pipeline.web_url
+                        );
                         break;
                     }
                     Failed => {
                         log::info!("{id} Pipeline failed");
-                        gerrit_reviewer
-                            .review(
-                                &change,
-                                &patchset,
-                                Review {
-                                    message: format!(
-                                        "Pipeline failed ({})",
-                                        latest_pipeline.web_url
-                                    ),
-                                    verified: Some(Verified::Negative),
-                                },
-                            )
-                            .await?;
+                        send_gerrit_review!(
+                            gerrit_reviewer,
+                            change,
+                            patchset,
+                            Failed,
+                            "Pipeline failed ({})",
+                            latest_pipeline.web_url
+                        );
                         break;
                     }
                     Canceled => {
                         log::info!("{id} Pipeline canceled");
-                        gerrit_reviewer
-                            .review(
-                                &change,
-                                &patchset,
-                                Review {
-                                    message: format!(
-                                        "Pipeline was cancelled ({})",
-                                        latest_pipeline.web_url
-                                    ),
-                                    ..Default::default()
-                                },
-                            )
-                            .await?;
+                        send_gerrit_review!(
+                            gerrit_reviewer,
+                            change,
+                            patchset,
+                            "Pipeline was cancelled ({})",
+                            latest_pipeline.web_url
+                        );
                         break;
                     }
                     status @ (Skipped | Manual | Scheduled) => {
@@ -518,19 +532,13 @@ impl ChangeTracker {
                     status => {
                         log::info!("{id} Pipeline is in progress, status: {status:?}");
                         if counter == 3 {
-                            gerrit_reviewer
-                                .review(
-                                    &change,
-                                    &patchset,
-                                    Review {
-                                        message: format!(
-                                            "Pipeline was started ({})",
-                                            latest_pipeline.web_url
-                                        ),
-                                        ..Default::default()
-                                    },
-                                )
-                                .await?;
+                            send_gerrit_review!(
+                                gerrit_reviewer,
+                                change,
+                                patchset,
+                                "Pipeline was started ({})",
+                                latest_pipeline.web_url
+                            );
                         }
                     }
                 }
