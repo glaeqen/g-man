@@ -320,14 +320,14 @@ impl ChangeTracker {
                     if pipeline_ids.len() > 0 {
                         log::warn!(
                         "{id} Pipelines ({pipeline_ids}) found running @ {} already. Cancelling.",
-                        patchset.revision
+                        &patchset.revision[..7]
                     );
                         send_gerrit_review!(
                         gerrit_reviewer,
                         change,
                         patchset,
                         "Warning: pipelines ({pipeline_ids}) found running @ {} already. Cancelling.",
-                        patchset.revision
+                        &patchset.revision[..7]
                     );
                     }
                     for pipeline in pipelines.into_iter() {
@@ -477,7 +477,7 @@ impl ChangeTracker {
             if latest_pipeline.id != pipeline_id || latest_pipeline.sha != patchset.revision {
                 log::info!(
                     "{id} Terminating tracked pipeline ({}) @ {}, different latest found: ({}) @ {}",
-                    pipeline_id, patchset.revision, latest_pipeline.id, latest_pipeline.sha
+                    pipeline_id, &patchset.revision[..7], latest_pipeline.id, &latest_pipeline.sha[..7]
                 );
                 send_gerrit_review!(
                     gerrit_reviewer,
@@ -485,9 +485,9 @@ impl ChangeTracker {
                     patchset,
                     "Terminating tracked pipeline ({}) @ {}, different latest found: ({}) @ {}",
                     pipeline_id,
-                    patchset.revision,
+                    &patchset.revision[..7],
                     latest_pipeline.id,
-                    latest_pipeline.sha
+                    &latest_pipeline.sha[..7]
                 );
                 let cancel_result = client.cancel_pipeline(pipeline_id, &change.project).await;
                 log::debug!("{id} Cancel attempt of the current pipeline: {cancel_result:?}");
