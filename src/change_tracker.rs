@@ -395,7 +395,7 @@ impl ChangeTracker {
         let git = git::Git::new(self.config.clone());
 
         let gerrit_reviewer = gerrit_ssh_command::GerritSshCommand::new(self.config.clone());
-
+        let ci_branch_name = &git.generate_branch_name(&change);
         match git.push_delete(&change).await {
             Ok(_) => {
                 log::info!("{id} Successfully removed a branch");
@@ -404,13 +404,13 @@ impl ChangeTracker {
                     change,
                     patchset,
                     "Branch ({}) successfully removed.",
-                    &change.branch,
+                    ci_branch_name
                 );
             }
             Err(e) => {
                 log::warn!(
                     "{id} Error when trying to delete an irrelevant CI branch ({}): {e:?}",
-                    change.branch
+                    ci_branch_name
                 );
                 let gerrit_reviewer =
                     gerrit_ssh_command::GerritSshCommand::new(self.config.clone());
@@ -419,7 +419,7 @@ impl ChangeTracker {
                     change,
                     patchset,
                     "Warning: Error when trying to delete an irrelevant CI branch ({}). Does not exist?",
-                    change.branch
+                    ci_branch_name
                 );
             }
         }
