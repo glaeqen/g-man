@@ -64,6 +64,7 @@ impl FindRepository for Vec<RepositoryConfig> {
     }
 }
 
+// TODO: Custom keys support is broken, for now - use default keys from `$USER/.ssh`
 #[derive(Deserialize, Clone, Debug)]
 pub struct GerritConfig {
     pub ssh: ssh::Config,
