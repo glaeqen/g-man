@@ -371,8 +371,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "gerrit-gitlab-ci"
-version = "0.1.0"
+name = "g-man"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "clap",
