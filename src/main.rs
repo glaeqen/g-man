@@ -11,6 +11,7 @@ mod gerrit_ssh_command;
 mod gerrit_stream_events;
 mod git;
 mod gitlab;
+mod gitlab_mirroring;
 mod helpers;
 mod ssh;
 
@@ -28,6 +29,11 @@ async fn main() -> anyhow::Result<()> {
     change_tracker::run(change_tracker::Args {
         config: config.clone(),
         gerrit_events_rx,
+    });
+
+    gitlab_mirroring::run(gitlab_mirroring::Args {
+        config: config.clone(),
+        gerrit_events_rx: gerrit_events_tx.subscribe(),
     });
 
     gerrit_stream_events::run(gerrit_stream_events::Args {

@@ -108,6 +108,42 @@ impl Git {
         ))
     }
 
+    // Mirror the `change.branch` from Gerrit in the corresponding GitLab repository
+    pub async fn mirror_in_gitlab(
+        &self,
+        change: &Change,
+    ) -> anyhow::Result<PushOperation> {
+        let mut command = Command::new("git");
+        if change.branch.starts_with("refs") {
+            return Err(anyhow::anyhow!(
+                "Tried to push an internal ref: {}",
+                &change.branch
+            ));
+        }
+        let branch = change.branch.clone();
+        command
+            .env("GIT_DIR", self.retrieve_git_dir(change))
+            .arg("push")
+            .arg("--porcelain")
+            .arg(self.retrieve_remote(change)?)
+            .arg(&format!("{}:refs/heads/{}", &branch, &branch));
+
+        let stdout = Self::run(command).await?;
+        for window in stdout.windows(2) {
+            if window[0] != b'\n' {
+                continue;
+            }
+            match window[1] {
+                b'*' | b'+' => return Ok(PushOperation::Updated { branch }),
+                b'=' => return Ok(PushOperation::NoChange { branch }),
+                _ => {}
+            }
+        }
+        Err(anyhow::anyhow!(
+            "git-push returned 0 but parsing did not find \n[*+=]?"
+        ))
+    }
+
     pub async fn push_delete(&self, change: &Change) -> anyhow::Result<()> {
         let mut command = Command::new("git");
         command
