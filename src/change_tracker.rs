@@ -4,7 +4,7 @@ use tokio::sync::{broadcast, Mutex};
 
 use crate::{
     config,
-    gerrit_ssh_command::{self, Review, Verified},
+    gerrit_ssh_command::{self, Verified},
     gerrit_stream_events::{
         self,
         models::{Change, Patchset},
@@ -17,6 +17,7 @@ use crate::{
 // TODO: Replace with config
 const TIMEOUT_PER_OBSERVATION: u64 = 3600;
 
+#[macro_export]
 macro_rules! send_gerrit_review {
     ($gr:ident, $change:ident, $patchset:ident, $s:literal $(, $x:expr)* $(,)?) => {
         send_gerrit_review!($gr, $change, $patchset, None, $s $(, $x)*)
@@ -34,7 +35,7 @@ macro_rules! send_gerrit_review {
                 .review(
                     &$change,
                     &$patchset,
-                    Review {
+                    crate::gerrit_ssh_command::Review {
                         message: format!($s $(, $x)*),
                         verified: $verified,
                     },
