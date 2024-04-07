@@ -1,9 +1,9 @@
 use std::io::Write;
 
 use crate::{
-    change_tracker::LoggingEnricher,
     config,
     gerrit_stream_events::models::{Change, Patchset},
+    helpers::LoggingEnricher,
 };
 
 pub struct GerritSshCommand {

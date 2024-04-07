@@ -11,6 +11,7 @@ mod gerrit_ssh_command;
 mod gerrit_stream_events;
 mod git;
 mod gitlab;
+mod helpers;
 mod ssh;
 
 #[tokio::main]
