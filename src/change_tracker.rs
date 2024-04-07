@@ -73,14 +73,6 @@ struct ChangeTracker {
     config: config::Config,
 }
 
-fn code_change_in_patchset(patchset: &Patchset) -> bool {
-    match patchset.kind {
-        gerrit_stream_events::models::PatchsetKind::NoCodeChange => false,
-        gerrit_stream_events::models::PatchsetKind::NoChange => false,
-        _ => true,
-    }
-}
-
 static GLOBAL_PUSH_TRIGGER_MUTEX: Mutex<()> = Mutex::const_new(());
 
 impl ChangeTracker {
@@ -101,25 +93,14 @@ impl ChangeTracker {
     // Because of that, this function should quite aggressively
     // terminate as soon as possible when it realizes it is outdated.
     async fn process_impl(self, event: gerrit_stream_events::Event) {
+        use gerrit_stream_events::models::PatchsetKind;
         use gerrit_stream_events::Event;
         match event {
             Event::PatchsetCreated { patchset, change }
-                if !change.wip && !change.private && code_change_in_patchset(&patchset) =>
-            {
-                self.new_pipeline(patchset, change).await
-            }
-            Event::ChangeRestored { patchset, change }
-                if !change.wip && !change.private && code_change_in_patchset(&patchset) =>
-            {
-                self.new_pipeline(patchset, change).await
-            }
-            Event::WipStateChanged { patchset, change }
-                if !change.wip && !change.private && code_change_in_patchset(&patchset) =>
-            {
-                self.new_pipeline(patchset, change).await
-            }
-            Event::PrivateStateChanged { patchset, change }
-                if !change.wip && !change.private && code_change_in_patchset(&patchset) =>
+                if !matches!(
+                    patchset.kind,
+                    PatchsetKind::NoCodeChange | PatchsetKind::NoChange
+                ) =>
             {
                 self.new_pipeline(patchset, change).await
             }
