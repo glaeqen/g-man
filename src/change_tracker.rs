@@ -394,8 +394,6 @@ impl ChangeTracker {
                     "{id} Error when trying to delete an irrelevant CI branch ({}): {e:?}",
                     ci_branch_name
                 );
-                let gerrit_reviewer =
-                    gerrit_ssh_command::GerritSshCommand::new(self.config.clone());
                 send_gerrit_review!(
                     gerrit_reviewer,
                     change,
