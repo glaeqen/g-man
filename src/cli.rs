@@ -7,7 +7,6 @@ pub struct Args {
     pub config_path: PathBuf,
 }
 
-
 pub fn cli() -> Args {
     Args::parse()
 }

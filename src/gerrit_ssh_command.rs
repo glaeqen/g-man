@@ -1,6 +1,10 @@
 use std::io::Write;
 
-use crate::{config, gerrit_stream_events::models::{Change, Patchset}, change_tracker::LoggingEnricher};
+use crate::{
+    change_tracker::LoggingEnricher,
+    config,
+    gerrit_stream_events::models::{Change, Patchset},
+};
 
 pub struct GerritSshCommand {
     config: config::Config,
@@ -8,12 +12,15 @@ pub struct GerritSshCommand {
 
 impl GerritSshCommand {
     pub fn new(config: config::Config) -> Self {
-        Self {
-            config
-        }
+        Self { config }
     }
 
-    pub async fn review(&self, change: &Change, patchset: &Patchset, review: Review) -> anyhow::Result<()> {
+    pub async fn review(
+        &self,
+        change: &Change,
+        patchset: &Patchset,
+        review: Review,
+    ) -> anyhow::Result<()> {
         let id = LoggingEnricher::new(patchset, change);
         let change_number = change.number;
         let patchset_number = patchset.number;
@@ -31,7 +38,11 @@ impl GerritSshCommand {
             command.args(["--label", &label]);
         }
         command.arg(format!("{},{}", change_number, patchset_number));
-        log::info!("{id} Review message: ({}) with label ({:?})", &review.message, &review.verified);
+        log::info!(
+            "{id} Review message: ({}) with label ({:?})",
+            &review.message,
+            &review.verified
+        );
         log::debug!("{id} Running a command: {:#?}", command);
         let output = command.output().await?;
         if !output.status.success() {
@@ -63,5 +74,5 @@ pub enum Verified {
 #[derive(Default, Debug, Clone)]
 pub struct Review {
     pub message: String,
-    pub verified: Option<Verified>
+    pub verified: Option<Verified>,
 }

@@ -61,7 +61,11 @@ impl Client {
         Ok(pipelines)
     }
 
-    pub async fn trigger_pipeline(&self, branch: &str, project_name: &str) -> anyhow::Result<Pipeline> {
+    pub async fn trigger_pipeline(
+        &self,
+        branch: &str,
+        project_name: &str,
+    ) -> anyhow::Result<Pipeline> {
         let url = format!(
             "https://gitlab.com/api/v4/projects/{}/pipeline",
             self.project_id(project_name)?,
@@ -87,12 +91,7 @@ impl Client {
         );
         log::trace!("cancel_pipeline query with a URL: {url}");
         let auth_headers = self.auth_headers(project_name)?;
-        let response = self
-            .client
-            .post(url)
-            .headers(auth_headers)
-            .send()
-            .await?;
+        let response = self.client.post(url).headers(auth_headers).send().await?;
         let pipeline = response.error_for_status()?.json().await?;
         Ok(pipeline)
     }
@@ -105,12 +104,7 @@ impl Client {
         );
         log::trace!("retry_pipeline query with a URL: {url}");
         let auth_headers = self.auth_headers(project_name)?;
-        let response = self
-            .client
-            .post(url)
-            .headers(auth_headers)
-            .send()
-            .await?;
+        let response = self.client.post(url).headers(auth_headers).send().await?;
         let pipeline = response.error_for_status()?.json().await?;
         Ok(pipeline)
     }
@@ -188,7 +182,10 @@ impl TriggerPipelineRequestBody {
         Self {
             reference: String::from(branch),
             // Mimick the merge request pipeline
-            variables: Some(ArrayOfHashes::new([("CI_PIPELINE_SOURCE", "merge_request_event")])),
+            variables: Some(ArrayOfHashes::new([(
+                "CI_PIPELINE_SOURCE",
+                "merge_request_event",
+            )])),
         }
     }
 }
