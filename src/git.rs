@@ -134,7 +134,8 @@ impl Git {
                 continue;
             }
             match window[1] {
-                b'*' | b'+' => return Ok(PushOperation::Updated { branch }),
+                // Single space means fast-forward (git-push manual)
+                b' ' => return Ok(PushOperation::Updated { branch }),
                 b'=' => return Ok(PushOperation::NoChange { branch }),
                 _ => {}
             }
