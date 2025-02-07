@@ -1,11 +1,7 @@
-FROM ubuntu:24.04
+FROM alpine:latest
 
 # Dependencies
-RUN apt-get update && apt-get install -y \
-    git \
-    openssh-client \
-    && rm -rf /var/lib/apt/lists/*
-
+RUN apk add --no-cache git openssh-client
 COPY ./target/x86_64-unknown-linux-musl/release/g-man /usr/bin/g-man
 
 # When starting a container:
