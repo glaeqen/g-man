@@ -41,10 +41,21 @@ async fn main() -> anyhow::Result<()> {
         gerrit_events_tx,
     });
 
-    tokio::signal::ctrl_c()
-        .await
-        .expect("failed to listen for SIGINT");
+    shutdown::wait().await;
 
-    log::info!("SIGINT received, closing.");
     Ok(())
+}
+
+pub mod shutdown {
+    use tokio::signal::unix::{signal, SignalKind};
+
+    pub async fn wait() {
+        let mut int = signal(SignalKind::interrupt()).unwrap();
+        let mut term = signal(SignalKind::terminate()).unwrap();
+
+        tokio::select! {
+            _ = int.recv() => log::error!("SIGINT"),
+            _ = term.recv() => log::error!("SIGTERM"),
+        }
+    }
 }
