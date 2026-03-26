@@ -26,6 +26,7 @@ impl GerritSshCommand {
         let patchset_number = patchset.number;
         let mut command = self.config.gerrit.ssh.command();
         command.args(["gerrit", "review"]);
+        command.args(["--project", &format!("\"{}\"", change.project)]);
         command.args(["--message", &format!("\"{}\"", &review.message)]);
         if let Some(verified) = &review.verified {
             let label = "Verified";
