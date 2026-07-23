@@ -89,11 +89,12 @@ pub struct Patchset {
 #[derive(Clone, Deserialize, Debug)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum PatchsetKind {
-    Rework,
-    TrivialRebase,
-    MergeFirstParentUpdate,
     NoCodeChange,
     NoChange,
+    /// All other patchset kinds: these kinds all imply
+    /// a change that requires a CI rerun.
+    #[serde(other)]
+    Other,
 }
 
 #[derive(Clone, Deserialize, Debug)]
@@ -116,4 +117,66 @@ pub enum ChangeStatus {
     New,
     Merged,
     Abandoned,
+}
+
+// Test that we can handle TRIVIAL_REBASE_WITH_MESSAGE_UPDATE variants.
+#[test]
+fn can_deserialize_trivial_rebase_with_msg_update() {
+    let object = r#"
+    {
+        "uploader": {
+            "name": "Jona",
+            "email": "johannes.draaijer@kiteshield.com",
+            "username": "datdenkikniet"
+        },
+        "patchSet": {
+            "number": 2,
+            "revision": "fa6b3cf76e9cda2f2e87f31aad124148a49ef49a",
+            "parents": [
+                "aaab08112f4eb3efab54634d2c1e934728421805"
+            ],
+            "ref": "refs/changes/82/2082/2",
+            "uploader": {
+                "name": "Jona",
+                "email": "johannes.draaijer@kiteshield.com",
+                "username": "datdenkikniet"
+            },
+            "createdOn": 1784815311,
+            "author": {
+                "name": "Jona",
+                "email": "johannes.draaijer@kiteshield.com",
+                "username": "datdenkikniet"
+            },
+            "kind": "TRIVIAL_REBASE_WITH_MESSAGE_UPDATE",
+            "sizeInsertions": 10,
+            "sizeDeletions": 0
+        },
+        "change": {
+            "project": "kiteshield/imxrt118x-hal",
+            "branch": "master",
+            "id": "Ib5fa8c667c3e8ff42e8b2404b5083c8b6af2af6d",
+            "number": 2082,
+            "subject": "trest 2",
+            "owner": {
+                "name": "Jona",
+                "email": "johannes.draaijer@kiteshield.com",
+                "username": "datdenkikniet"
+            },
+            "url": "https://gerrit.kiteshield.com/c/kiteshield/imxrt118x-hal/+/2082",
+            "commitMessage": "trest 2\n\nChange-Id: Ib5fa8c667c3e8ff42e8b2404b5083c8b6af2af6d\n",
+            "createdOn": 1784815118,
+            "status": "NEW",
+            "wip": true
+        },
+        "project": "kiteshield/imxrt118x-hal",
+        "refName": "refs/heads/master",
+        "changeKey": {
+            "id": "Ib5fa8c667c3e8ff42e8b2404b5083c8b6af2af6d"
+        },
+        "type": "patchset-created",
+        "eventCreatedOn": 1784815311
+    }
+    "#;
+
+    let _success: Event = serde_json::from_str(object).unwrap();
 }
