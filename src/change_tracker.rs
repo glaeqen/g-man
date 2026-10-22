@@ -76,6 +76,8 @@ struct ChangeTracker {
 }
 
 static GLOBAL_PUSH_TRIGGER_MUTEX: Mutex<()> = Mutex::const_new(());
+// Used to achieve 100 req/minute limit in GitLab
+static GLOBAL_POLL_SLEEP_MUTEX: Mutex<()> = Mutex::const_new(());
 
 impl ChangeTracker {
     fn process(&self, event: gerrit_stream_events::Event) {
@@ -430,7 +432,11 @@ impl ChangeTracker {
         let mut not_found_allowed_counter: u8 = 5;
         loop {
             counter += 1;
-            tokio::time::sleep(Duration::from_secs(1)).await;
+            {
+                // Turing award worthy solution to poll rate limiting
+                let _guard = GLOBAL_POLL_SLEEP_MUTEX.lock().await;
+                tokio::time::sleep(Duration::from_secs(1)).await;
+            }
 
             let latest_pipeline = {
                 use gitlab::PipelineQueryResult::*;
